@@ -72,6 +72,12 @@ http.route({
 });
 
 http.route({
+  path: "/favicon.svg",
+  method: "GET",
+  handler: httpAction(async () => staticResponse("/favicon.svg")),
+});
+
+http.route({
   pathPrefix: "/assets/",
   method: "GET",
   handler: httpAction(async (_ctx, request) => staticResponse(new URL(request.url).pathname)),
