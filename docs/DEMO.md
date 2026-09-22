@@ -2,7 +2,7 @@
 
 Target: 90–105 seconds. Show the product, not an architecture tour.
 
-Production app: `https://<patch-work-production-deployment>.convex.site`
+Production app: `https://coordinated-iguana-167.convex.site`
 
 ## Before recording
 

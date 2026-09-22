@@ -66,7 +66,7 @@ Setup, environment, reset and deployment instructions are in [`README.md`](READM
 
 ## Production
 
-- App: `https://<patch-work-production-deployment>.convex.site`
+- App: https://coordinated-iguana-167.convex.site
 - Source: https://github.com/Davemafy/patch-work
 
 ## Known limitation

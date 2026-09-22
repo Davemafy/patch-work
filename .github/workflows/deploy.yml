@@ -32,7 +32,8 @@ jobs:
         run: |
           output="$(npx convex deploy --dry-run --typecheck=disable 2>&1)"
           printf '%s\n' "$output"
-          if ! grep -Eq '^\[Production\].*:patch-work:(prod|production)(/|$)' <<<"$output"; then
+          if ! grep -Fq '[Production] david-imafidon:patch-work:production (prod)' <<<"$output" || \
+             ! grep -Fq 'https://coordinated-iguana-167.convex.cloud' <<<"$output"; then
             echo "::error::CONVEX_DEPLOY_KEY must belong to the production deployment of the patch-work project."
             exit 1
           fi

@@ -104,12 +104,12 @@ The endpoint returns 404 when the secret is absent or wrong and is not exposed i
 
 Production deploys run through [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). GitHub Actions reads the production `CONVEX_DEPLOY_KEY` from the repository secret, verifies that it resolves to the production deployment of the `patch-work` Convex project, derives `VITE_CONVEX_URL` from that verified deployment, embeds the static build in the Convex bundle, and runs `npx convex deploy`. The deploy key identifies the production deployment; `CONVEX_DEPLOYMENT` is not required. The workflow refuses development keys and keys for any other project.
 
-Generate that key from Convex dashboard → team `david-imafidon` → project `patch-work` → deployment `Production`. The random deployment slug does not need to be copied into the repository; the guarded dry run resolves it from the key.
+Generate that key from Convex dashboard → team `david-imafidon` → project `patch-work` → deployment `Production` (`coordinated-iguana-167`). The guarded dry run verifies both the project identity and deployment name before any production write.
 
 The same deployment serves both boundaries:
 
-- App: `https://<patch-work-production-deployment>.convex.site`
-- AgentMail webhook: `https://<patch-work-production-deployment>.convex.site/agentmail/webhook`
+- App: `https://coordinated-iguana-167.convex.site`
+- AgentMail webhook: `https://coordinated-iguana-167.convex.site/agentmail/webhook`
 
 The production Convex environment must contain `FIRECRAWL_API_KEY`, `AGENTMAIL_API_KEY`, `AGENTMAIL_INBOX_ID`, `AGENTMAIL_WEBHOOK_SECRET`, and `GROQ_API_KEY`. `OPENAI_API_KEY` is not used. Pushes to `main` and manual workflow dispatches run the complete deployment gate.
 
