@@ -29,7 +29,18 @@ jobs:
       - run: npm run lint
       - run: npm test
       - name: Identify the patch-work production deployment (read-only)
-        run: npx convex env list --prod --names-only
+        run: |
+          production_name="$(
+            curl --fail --silent --show-error \
+              --header "Authorization: Bearer $CONVEX_DEPLOY_KEY" \
+              https://api.convex.dev/v1/teams/david-imafidon/projects \
+              | jq --raw-output '.[] | select(.slug == "patch-work") | .prodDeploymentName'
+          )"
+          if [[ -z "$production_name" || "$production_name" == "null" ]]; then
+            echo "::error::The patch-work project has no production deployment."
+            exit 1
+          fi
+          echo "patch-work production deployment: $production_name"
       - name: Verify the deploy key targets patch-work production
         run: |
           output="$(npx convex deploy --dry-run --typecheck=disable 2>&1)"
