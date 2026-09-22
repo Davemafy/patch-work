@@ -15,14 +15,23 @@ async function gptOssJson<T>(name: string, schema: Record<string, unknown>, prom
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: GPT_OSS_MODEL,
-      store: false,
       input: prompt,
       text: { format: { type: "json_schema", name, strict: true, schema } },
     }),
   });
   if (!response.ok) throw new Error(`GPT-OSS through Groq failed (${response.status}): ${await response.text()}`);
-  const json = (await response.json()) as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
-  const text = json.output_text ?? json.output?.flatMap((item) => item.content ?? []).find((item) => item.text)?.text;
+  const json = (await response.json()) as {
+    output_text?: string;
+    output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
+  };
+  // The raw Responses API payload contains reasoning and message items. The
+  // SDK's `output_text` convenience property is not present in raw JSON, so
+  // select only the assistant message's final `output_text` content.
+  const text = json.output_text ?? json.output
+    ?.filter((item) => item.type === "message")
+    .flatMap((item) => item.content ?? [])
+    .find((item) => item.type === "output_text" && typeof item.text === "string")
+    ?.text;
   if (!text) throw new Error("GPT-OSS through Groq returned no structured output.");
   return JSON.parse(text) as T;
 }
