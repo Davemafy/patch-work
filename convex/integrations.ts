@@ -4,25 +4,26 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { cleanEmail, type ReplyFacts, type RepairUnderstanding, safeText } from "./lib";
 
-const OPENAI_MODEL = "gpt-5-mini";
+const GROQ_RESPONSES_URL = "https://api.groq.com/openai/v1/responses";
+const GPT_OSS_MODEL = "openai/gpt-oss-20b";
 
-async function openAIJson<T>(name: string, schema: Record<string, unknown>, prompt: string): Promise<T> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured in Convex.");
-  const response = await fetch("https://api.openai.com/v1/responses", {
+async function gptOssJson<T>(name: string, schema: Record<string, unknown>, prompt: string): Promise<T> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error("GROQ_API_KEY is not configured in Convex.");
+  const response = await fetch(GROQ_RESPONSES_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: OPENAI_MODEL,
+      model: GPT_OSS_MODEL,
       store: false,
       input: prompt,
       text: { format: { type: "json_schema", name, strict: true, schema } },
     }),
   });
-  if (!response.ok) throw new Error(`OpenAI failed (${response.status}): ${await response.text()}`);
+  if (!response.ok) throw new Error(`GPT-OSS through Groq failed (${response.status}): ${await response.text()}`);
   const json = (await response.json()) as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
   const text = json.output_text ?? json.output?.flatMap((item) => item.content ?? []).find((item) => item.text)?.text;
-  if (!text) throw new Error("OpenAI returned no structured output.");
+  if (!text) throw new Error("GPT-OSS through Groq returned no structured output.");
   return JSON.parse(text) as T;
 }
 
@@ -34,7 +35,7 @@ export const discover = action({
     try {
     const repair = await ctx.runQuery(internal.repairs.getInternal, { repairId });
     if (!repair) return;
-    const understanding = await openAIJson<RepairUnderstanding>(
+    const understanding = await gptOssJson<RepairUnderstanding>(
       "repair_understanding",
       {
         type: "object",
@@ -72,48 +73,27 @@ export const discover = action({
       };
     });
 
-    const selected = sourceMaterial.length
-      ? await openAIJson<{
-          candidates: Array<{ name: string; website: string; contactEmail: string | null; serviceEvidence: string; sourceUrl: string }>;
-        }>(
-          "repair_candidates",
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["candidates"],
-            properties: {
-              candidates: {
-                type: "array",
-                maxItems: 4,
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["name", "website", "contactEmail", "serviceEvidence", "sourceUrl"],
-                  properties: {
-                    name: { type: "string" },
-                    website: { type: "string" },
-                    contactEmail: { type: ["string", "null"] },
-                    serviceEvidence: { type: "string" },
-                    sourceUrl: { type: "string" },
-                  },
-                },
-              },
-            },
-          },
-          `Choose at most four businesses that clearly say they handle ${understanding.category} in or near ${repair.area}. Use only this Firecrawl source material:\n${JSON.stringify(sourceMaterial)}\nRules: serviceEvidence must be a short faithful paraphrase of words present in that source. Keep the exact source URL. Include an email only when literally present in the material. Never claim current availability, price, verification, rating, or job acceptance. Exclude directories, social profiles, and weak matches.`,
-        )
-      : { candidates: [] };
-
-    const candidates = selected.candidates
-      .filter((candidate) => /^https?:\/\//.test(candidate.website) && /^https?:\/\//.test(candidate.sourceUrl))
-      .map((candidate) => ({
-        name: safeText(candidate.name, 100),
-        website: safeText(candidate.website, 500),
-        contactEmail: cleanEmail(candidate.contactEmail),
-        serviceEvidence: safeText(candidate.serviceEvidence, 300),
-        sourceUrl: safeText(candidate.sourceUrl, 500),
-      }))
-      .filter((candidate) => candidate.name && candidate.serviceEvidence);
+    // Firecrawl has already ranked these pages for the narrow GPT-OSS search
+    // context. Keep candidate selection deterministic so AI has exactly two
+    // jobs in Patch: search context and reply fact extraction.
+    const candidates = sourceMaterial
+      .filter((source) => /^https?:\/\//.test(source.url))
+      .filter((source) => !/(facebook|instagram|linkedin|yelp|yellowpages|directory)/i.test(source.url))
+      .map((source) => {
+        const evidence = safeText(source.description || source.markdown.split("\n").find((line) => line.trim()) || "", 300);
+        let website = source.url;
+        try { website = new URL(source.url).origin; } catch { /* source URL was validated above */ }
+        return {
+          name: safeText(source.title.replace(/\s*[|–—-].*$/, ""), 100),
+          website: safeText(website, 500),
+          contactEmail: cleanEmail(`${source.description}\n${source.markdown}`),
+          serviceEvidence: evidence,
+          sourceUrl: source.url,
+        };
+      })
+      .filter((candidate) => candidate.name && candidate.serviceEvidence)
+      .filter((candidate, index, all) => all.findIndex((other) => other.website === candidate.website) === index)
+      .slice(0, 4);
 
     for (const candidate of candidates) {
       if (candidate.contactEmail) continue;
@@ -237,7 +217,7 @@ export const processInbound = internalAction({
     const reservation = await ctx.runMutation(internal.repairs.reserveReply, args);
     if (!reservation || !reservation.created) return { accepted: Boolean(reservation), duplicate: Boolean(reservation) };
     try {
-      const facts = await openAIJson<ReplyFacts>(
+      const facts = await gptOssJson<ReplyFacts>(
         "repair_reply_facts",
         {
           type: "object",

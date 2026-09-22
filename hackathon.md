@@ -24,7 +24,7 @@ Patch finds explicit door/lock repair evidence near the entered area. The user s
 
 > I can come today at 2. It’ll be ₦12,000.
 
-the signed inbound webhook reaches Convex, OpenAI extracts only those stated facts, and the live UI shows the time and ₦12,000. The original reply remains available. The user chooses that person, refreshes, and the chosen state remains.
+the signed inbound webhook reaches Convex, OpenAI GPT-OSS served through Groq extracts only those stated facts, and the live UI shows the time and ₦12,000. The original reply remains available. The user chooses that person, refreshes, and the chosen state remains.
 
 ## Sponsor stack
 
@@ -40,9 +40,9 @@ Firecrawl's v2 search receives the repair context and area. Patch requests sourc
 
 AgentMail sends ordinary text-and-HTML emails from a real inbox. One outreach record is reserved before each send. Incoming `message.received` events are signature-verified, correlated by thread ID, deduplicated by message ID, and stored before interpretation.
 
-### OpenAI
+### OpenAI GPT-OSS through Groq
 
-OpenAI strict structured output creates conservative search context and extracts a narrow reply schema: willingness, stated arrival wording, stated price, currency, and note. Missing values remain empty. On extraction failure, Patch exposes the raw reply rather than guessing.
+OpenAI GPT-OSS (`openai/gpt-oss-20b`) runs through Groq's OpenAI-compatible Responses API. Strict structured output is used for exactly two jobs: repair description → search context, and raw repair-person reply → conservative facts. Missing values remain empty. On extraction failure, Patch exposes the raw reply rather than guessing.
 
 ## Truth boundary
 

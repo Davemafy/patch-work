@@ -15,7 +15,7 @@ Patch keeps two kinds of evidence separate:
 - Convex database, actions, file storage, live queries and HTTP actions
 - Firecrawl search with source-page content
 - AgentMail outbound email and signed inbound webhooks
-- OpenAI Responses API with strict JSON schemas
+- OpenAI GPT-OSS served through Groq's OpenAI-compatible Responses API with strict JSON schemas
 - Vitest and `convex-test`
 
 ## Architecture
@@ -47,7 +47,7 @@ npx convex env set FIRECRAWL_API_KEY fc-...
 npx convex env set AGENTMAIL_API_KEY am_...
 npx convex env set AGENTMAIL_INBOX_ID patch@agentmail.to
 npx convex env set AGENTMAIL_WEBHOOK_SECRET whsec_...
-npx convex env set OPENAI_API_KEY sk-...
+npx convex env set GROQ_API_KEY gsk_...
 npx convex env set DEMO_RESET_SECRET a-long-random-value
 ```
 
@@ -72,9 +72,9 @@ Create a Firecrawl API key and set `FIRECRAWL_API_KEY` in Convex. Patch calls th
 
 Outbound requests include text and HTML. An outreach row is reserved before sending, so a second click cannot send the same person another request for the same repair. Failed sends may be retried.
 
-### OpenAI
+### OpenAI GPT-OSS through Groq
 
-Set `OPENAI_API_KEY` in Convex. Patch uses strict structured output for two narrow tasks: repair search context and reply facts. It stores the original reply before extraction. If extraction fails, the original remains visible and Patch supplies no invented price or time.
+Set `GROQ_API_KEY` in Convex. Patch calls the OpenAI-compatible Responses API at `https://api.groq.com/openai/v1` with `openai/gpt-oss-20b`. GPT-OSS has exactly two narrow jobs with strict structured output: turn a repair description into search context, and turn a raw repair-person reply into conservative facts. Patch stores the original reply before extraction. If extraction fails, the original remains visible and Patch supplies no invented price, time, availability, willingness, or acceptance.
 
 ## Commands
 
@@ -103,7 +103,7 @@ The endpoint returns 404 when the secret is absent or wrong and is not exposed i
 ## Deployment
 
 1. Run `npx convex deploy` and note the production `.convex.cloud` and `.convex.site` URLs.
-2. Add the six production Convex environment variables above.
+2. Add the six production Convex environment variables above. `GROQ_API_KEY` is required; `OPENAI_API_KEY` is not used.
 3. Configure AgentMail's webhook against the `.convex.site` URL.
 4. Set `VITE_CONVEX_URL` in Vercel to the production `.convex.cloud` URL.
 5. Deploy the Vite app and run the complete real-email test from its public URL.

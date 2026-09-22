@@ -4,7 +4,7 @@ Target: 90–105 seconds. Show the product, not an architecture tour.
 
 ## Before recording
 
-1. Confirm the production app, Convex deployment, AgentMail webhook, Firecrawl key, and OpenAI key are live.
+1. Confirm the production app, Convex deployment, AgentMail webhook, Firecrawl key, and Groq key are live.
 2. Send one test round-trip and confirm the reply appears once.
 3. Run the protected reset from `README.md`.
 4. Open the app without a `?repair=` query.
@@ -39,7 +39,7 @@ Reply `I can come today at 2. It'll be ₦12,000.` and send it.
 
 Return to Patch without refreshing. Show the stated arrival wording, ₦12,000, and expanded original reply.
 
-Say: “AgentMail delivered the reply, OpenAI extracted only what was written, and Convex updated Patch live.”
+Say: “AgentMail delivered the reply, OpenAI GPT-OSS through Groq extracted only what was written, and Convex updated Patch live.”
 
 ### 86–100s — Human choice and persistence
 
