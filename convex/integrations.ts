@@ -57,12 +57,16 @@ export const discover = action({
 
     const firecrawlKey = process.env.FIRECRAWL_API_KEY;
     if (!firecrawlKey) throw new Error("FIRECRAWL_API_KEY is not configured in Convex.");
+    const normalizedSearchQuery = understanding.searchQuery.toLowerCase();
+    const searchQuery = (repair.area.toLowerCase().match(/[a-z0-9]+/g) ?? []).some((term) => normalizedSearchQuery.includes(term))
+      ? understanding.searchQuery
+      : `${understanding.searchQuery} ${repair.area}`;
     const searchResponse = await fetch("https://api.firecrawl.dev/v2/search", {
       method: "POST",
       headers: { Authorization: `Bearer ${firecrawlKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        query: `${understanding.searchQuery} ${repair.area}`,
-        limit: 8,
+        query: searchQuery,
+        limit: 20,
         sources: [{ type: "web" }],
         scrapeOptions: { formats: ["markdown"], onlyMainContent: true },
       }),
@@ -70,7 +74,7 @@ export const discover = action({
     if (!searchResponse.ok) throw new Error(`Firecrawl failed (${searchResponse.status}): ${await searchResponse.text()}`);
     const searchJson = (await searchResponse.json()) as Record<string, unknown>;
     const data = (searchJson.data && typeof searchJson.data === "object" ? searchJson.data : searchJson) as Record<string, unknown>;
-    const rawResults = (Array.isArray(data.web) ? data.web : Array.isArray(data.data) ? data.data : []).slice(0, 8);
+    const rawResults = (Array.isArray(data.web) ? data.web : Array.isArray(data.data) ? data.data : []).slice(0, 20);
     const sourceMaterial = rawResults.map((item, index) => {
       const row = item as Record<string, unknown>;
       return {
@@ -84,8 +88,12 @@ export const discover = action({
 
     const areaTerms = new Set(repair.area.toLowerCase().match(/[a-z0-9]+/g) ?? []);
     const ignoredServiceTerms = new Set(["and", "for", "home", "local", "near", "repair", "repairs", "service", "services"]);
-    const serviceTerms = [...new Set(`${understanding.category} ${understanding.searchQuery}`.toLowerCase().match(/[a-z0-9]+/g) ?? [])]
+    const queryTerms = [...new Set(understanding.searchQuery.toLowerCase().match(/[a-z0-9]+/g) ?? [])]
       .filter((term) => term.length >= 3 && !areaTerms.has(term) && !ignoredServiceTerms.has(term));
+    const categoryTerms = [...new Set(understanding.category.toLowerCase().match(/[a-z0-9]+/g) ?? [])]
+      .filter((term) => term.length >= 3 && !ignoredServiceTerms.has(term));
+    const serviceTerms = queryTerms.length ? queryTerms : categoryTerms;
+    const requiredServiceMatches = Math.min(2, serviceTerms.length);
 
     // Firecrawl has already ranked these pages for the narrow GPT-OSS search
     // context. Keep candidate selection deterministic so AI has exactly two
@@ -95,8 +103,8 @@ export const discover = action({
       .filter((source) => !isAggregator(source.url))
       .filter((source) => {
         const pageText = `${source.title}\n${source.description}\n${source.markdown}`.toLowerCase();
-        return serviceTerms.length > 0
-          && serviceTerms.some((term) => pageText.includes(term))
+        return requiredServiceMatches > 0
+          && serviceTerms.filter((term) => pageText.includes(term)).length >= requiredServiceMatches
           && [...areaTerms].some((term) => pageText.includes(term));
       })
       .map((source) => {
@@ -104,10 +112,13 @@ export const discover = action({
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean);
-        const evidence = safeText(
-          evidenceLines.find((line) => serviceTerms.some((term) => line.toLowerCase().includes(term))) ?? "",
-          300,
-        );
+        const evidence = safeText(evidenceLines
+          .map((line) => ({ line, matches: serviceTerms.filter((term) => line.toLowerCase().includes(term)).length }))
+          .filter(({ matches }) => matches > 0)
+          .sort((a, b) => b.matches - a.matches)
+          .slice(0, 2)
+          .map(({ line }) => line)
+          .join(" "), 300);
         let website = source.url;
         try { website = new URL(source.url).origin; } catch { /* source URL was validated above */ }
         return {
