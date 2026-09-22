@@ -25,16 +25,18 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - name: Require a production Convex deploy key
-        run: |
-          if [[ "$CONVEX_DEPLOY_KEY" != prod:* ]]; then
-            echo "::error::CONVEX_DEPLOY_KEY must be the production deploy key for aware-porpoise-430."
-            exit 1
-          fi
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
       - run: npm run build
       - run: npm run embed:static
+      - name: Verify the Convex deployment target
+        run: |
+          output="$(npx convex deploy --dry-run --typecheck=disable 2>&1)"
+          printf '%s\n' "$output"
+          if ! grep -q "aware-porpoise-430" <<<"$output"; then
+            echo "::error::The deploy key is not associated with aware-porpoise-430."
+            exit 1
+          fi
       - run: npx convex deploy --typecheck=enable --message "GitHub Actions production deploy $GITHUB_SHA"

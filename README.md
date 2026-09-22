@@ -102,7 +102,7 @@ The endpoint returns 404 when the secret is absent or wrong and is not exposed i
 
 ## Production deployment
 
-Production deploys run through [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). GitHub Actions reads the production `CONVEX_DEPLOY_KEY` for `aware-porpoise-430` from the repository secret, verifies the project, builds the Vite frontend with the production Convex URL, embeds the static build in the Convex bundle, and runs `npx convex deploy`. The deploy key identifies the production deployment; `CONVEX_DEPLOYMENT` is not required. The workflow rejects development deploy keys before installing or deploying anything.
+Production deploys run through [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). GitHub Actions reads the production `CONVEX_DEPLOY_KEY` for `aware-porpoise-430` from the repository secret, verifies the project, builds the Vite frontend with the production Convex URL, embeds the static build in the Convex bundle, and runs `npx convex deploy`. The deploy key identifies the production deployment; `CONVEX_DEPLOYMENT` is not required. A dry run verifies the associated deployment name before the workflow is allowed to push code.
 
 The same deployment serves both boundaries:
 
