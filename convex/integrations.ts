@@ -82,14 +82,30 @@ export const discover = action({
       };
     });
 
+    const areaTerms = new Set(repair.area.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+    const ignoredServiceTerms = new Set(["and", "for", "home", "local", "near", "repair", "repairs", "service", "services"]);
+    const serviceTerms = [...new Set(`${understanding.category} ${understanding.searchQuery}`.toLowerCase().match(/[a-z0-9]+/g) ?? [])]
+      .filter((term) => term.length >= 3 && !areaTerms.has(term) && !ignoredServiceTerms.has(term));
+
     // Firecrawl has already ranked these pages for the narrow GPT-OSS search
     // context. Keep candidate selection deterministic so AI has exactly two
     // jobs in Patch: search context and reply fact extraction.
     const candidates = sourceMaterial
       .filter((source) => /^https?:\/\//.test(source.url))
-      .filter((source) => !/(facebook|instagram|linkedin|yelp|yellowpages|directory)/i.test(source.url))
+      .filter((source) => !isAggregator(source.url))
+      .filter((source) => {
+        const pageText = `${source.title}\n${source.description}\n${source.markdown}`.toLowerCase();
+        return serviceTerms.length > 0 && serviceTerms.some((term) => pageText.includes(term));
+      })
       .map((source) => {
-        const evidence = safeText(source.description || source.markdown.split("\n").find((line) => line.trim()) || "", 300);
+        const evidenceLines = `${source.description}\n${source.markdown}`
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const evidence = safeText(
+          evidenceLines.find((line) => serviceTerms.some((term) => line.toLowerCase().includes(term))) ?? "",
+          300,
+        );
         let website = source.url;
         try { website = new URL(source.url).origin; } catch { /* source URL was validated above */ }
         return {
@@ -121,6 +137,21 @@ export const discover = action({
     }
   },
 });
+
+function isAggregator(rawUrl: string): boolean {
+  let host = "";
+  try { host = new URL(rawUrl).hostname.replace(/^www\./, ""); } catch { return true; }
+  return [
+    "daibau.ng",
+    "facebook.com",
+    "instagram.com",
+    "jiji.ng",
+    "linkedin.com",
+    "starofservice.com.ng",
+    "yelp.com",
+    "yellowpages.com",
+  ].some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
 
 async function findPublicEmail(apiKey: string, website: string): Promise<{ email: string; sourceUrl: string } | null> {
   let host: string;
