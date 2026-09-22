@@ -28,18 +28,6 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
-      - name: Identify the patch-work production deployment (read-only)
-        run: |
-          response="$(curl --fail --silent --show-error \
-            --header "Authorization: Bearer $CONVEX_DEPLOY_KEY" \
-            --header "Convex-Client: npm-cli-1.28.0" \
-            https://api.convex.dev/api/teams/david-imafidon/projects/patch-work/deployments)"
-          production_name="$(jq --raw-output '.[] | select(.deployment_type == "prod") | .name' <<<"$response")"
-          if [[ -z "$production_name" || "$production_name" == "null" ]]; then
-            echo "::error::Convex did not return the patch-work production deployment name."
-            exit 1
-          fi
-          echo "patch-work production deployment: $production_name"
       - name: Verify the deploy key targets patch-work production
         run: |
           output="$(npx convex deploy --dry-run --typecheck=disable 2>&1)"

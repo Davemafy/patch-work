@@ -104,6 +104,8 @@ The endpoint returns 404 when the secret is absent or wrong and is not exposed i
 
 Production deploys run through [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). GitHub Actions reads the production `CONVEX_DEPLOY_KEY` from the repository secret, verifies that it resolves to the production deployment of the `patch-work` Convex project, derives `VITE_CONVEX_URL` from that verified deployment, embeds the static build in the Convex bundle, and runs `npx convex deploy`. The deploy key identifies the production deployment; `CONVEX_DEPLOYMENT` is not required. The workflow refuses development keys and keys for any other project.
 
+Generate that key from Convex dashboard → team `david-imafidon` → project `patch-work` → deployment `Production`. The random deployment slug does not need to be copied into the repository; the guarded dry run resolves it from the key.
+
 The same deployment serves both boundaries:
 
 - App: `https://<patch-work-production-deployment>.convex.site`
