@@ -18,7 +18,6 @@ jobs:
     timeout-minutes: 15
     env:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-      VITE_CONVEX_URL: https://aware-porpoise-430.convex.cloud
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,14 +28,22 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
-      - run: npm run build
-      - run: npm run embed:static
-      - name: Verify the Convex deployment target
+      - name: Identify the patch-work production deployment (read-only)
+        run: npx convex env list --prod --names-only
+      - name: Verify the deploy key targets patch-work production
         run: |
           output="$(npx convex deploy --dry-run --typecheck=disable 2>&1)"
           printf '%s\n' "$output"
-          if ! grep -q "aware-porpoise-430" <<<"$output"; then
-            echo "::error::The deploy key is not associated with aware-porpoise-430."
+          if ! grep -Eq '^\[Production\].*:patch-work:(prod|production)(/|$)' <<<"$output"; then
+            echo "::error::CONVEX_DEPLOY_KEY must belong to the production deployment of the patch-work project."
             exit 1
           fi
+          deployment_url="$(grep -Eo 'https://[a-z0-9-]+\.convex\.cloud' <<<"$output" | head -n 1)"
+          if [[ -z "$deployment_url" ]]; then
+            echo "::error::Could not determine the patch-work production Convex URL from the dry run."
+            exit 1
+          fi
+          echo "VITE_CONVEX_URL=$deployment_url" >> "$GITHUB_ENV"
+      - run: npm run build
+      - run: npm run embed:static
       - run: npx convex deploy --typecheck=enable --message "GitHub Actions production deploy $GITHUB_SHA"

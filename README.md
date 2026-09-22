@@ -102,12 +102,12 @@ The endpoint returns 404 when the secret is absent or wrong and is not exposed i
 
 ## Production deployment
 
-Production deploys run through [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). GitHub Actions reads the production `CONVEX_DEPLOY_KEY` for `aware-porpoise-430` from the repository secret, verifies the project, builds the Vite frontend with the production Convex URL, embeds the static build in the Convex bundle, and runs `npx convex deploy`. The deploy key identifies the production deployment; `CONVEX_DEPLOYMENT` is not required. A dry run verifies the associated deployment name before the workflow is allowed to push code.
+Production deploys run through [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). GitHub Actions reads the production `CONVEX_DEPLOY_KEY` from the repository secret, verifies that it resolves to the production deployment of the `patch-work` Convex project, derives `VITE_CONVEX_URL` from that verified deployment, embeds the static build in the Convex bundle, and runs `npx convex deploy`. The deploy key identifies the production deployment; `CONVEX_DEPLOYMENT` is not required. The workflow refuses development keys and keys for any other project.
 
 The same deployment serves both boundaries:
 
-- App: `https://aware-porpoise-430.convex.site`
-- AgentMail webhook: `https://aware-porpoise-430.convex.site/agentmail/webhook`
+- App: `https://<patch-work-production-deployment>.convex.site`
+- AgentMail webhook: `https://<patch-work-production-deployment>.convex.site/agentmail/webhook`
 
 The production Convex environment must contain `FIRECRAWL_API_KEY`, `AGENTMAIL_API_KEY`, `AGENTMAIL_INBOX_ID`, `AGENTMAIL_WEBHOOK_SECRET`, and `GROQ_API_KEY`. `OPENAI_API_KEY` is not used. Pushes to `main` and manual workflow dispatches run the complete deployment gate.
 
