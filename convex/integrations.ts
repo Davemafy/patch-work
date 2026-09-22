@@ -44,6 +44,7 @@ export const discover = action({
     try {
     const repair = await ctx.runQuery(internal.repairs.getInternal, { repairId });
     if (!repair) return;
+    const broadArea = repair.area.split(",").map((part) => part.trim()).filter(Boolean).at(-1) ?? repair.area;
     const understanding = await gptOssJson<RepairUnderstanding>(
       "repair_understanding",
       {
@@ -52,7 +53,7 @@ export const discover = action({
         required: ["category", "searchQuery"],
         properties: { category: { type: "string" }, searchQuery: { type: "string" } },
       },
-      `A person in ${repair.area} needs a small home repair. Their exact words: ${JSON.stringify(repair.description)}\nReturn a plain repair category and a concise web search query for local businesses whose own sites explicitly offer that repair. Use the public trade and service terms those businesses advertise, not just the customer's symptom wording; for example, a broken door knob may need a locksmith or door-lock repair search. Include the location once. Do not diagnose the fault.`,
+      `A person in ${repair.area} needs a small home repair. Their exact words: ${JSON.stringify(repair.description)}\nReturn a plain repair category and a concise web search query for local businesses whose own sites explicitly offer that repair. Use the public trade and service terms those businesses advertise, not just the customer's symptom wording; for example, a broken door knob may need a locksmith or door-lock repair search. Use the broader city ${broadArea} once rather than over-constraining the search to a neighbourhood. Do not diagnose the fault.`,
     );
 
     const firecrawlKey = process.env.FIRECRAWL_API_KEY;
@@ -156,11 +157,19 @@ function isAggregator(rawUrl: string): boolean {
   try { host = new URL(rawUrl).hostname.replace(/^www\./, ""); } catch { return true; }
   return [
     "daibau.ng",
+    "businesslist.com.ng",
+    "cybo.com",
     "facebook.com",
+    "finelib.com",
+    "goafricaonline.com",
+    "hotfrog.com",
     "instagram.com",
     "jiji.ng",
     "linkedin.com",
+    "manpower.com.ng",
+    "ngex.com",
     "starofservice.com.ng",
+    "vconnect.com",
     "viscorner.com",
     "yelp.com",
     "yellowpages.com",
