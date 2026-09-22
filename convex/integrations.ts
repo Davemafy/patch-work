@@ -1,0 +1,275 @@
+import { v } from "convex/values";
+import { action, internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { cleanEmail, type ReplyFacts, type RepairUnderstanding, safeText } from "./lib";
+
+const OPENAI_MODEL = "gpt-5-mini";
+
+async function openAIJson<T>(name: string, schema: Record<string, unknown>, prompt: string): Promise<T> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured in Convex.");
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      store: false,
+      input: prompt,
+      text: { format: { type: "json_schema", name, strict: true, schema } },
+    }),
+  });
+  if (!response.ok) throw new Error(`OpenAI failed (${response.status}): ${await response.text()}`);
+  const json = (await response.json()) as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
+  const text = json.output_text ?? json.output?.flatMap((item) => item.content ?? []).find((item) => item.text)?.text;
+  if (!text) throw new Error("OpenAI returned no structured output.");
+  return JSON.parse(text) as T;
+}
+
+export const discover = action({
+  args: { repairId: v.id("repairs") },
+  handler: async (ctx, { repairId }) => {
+    const started = await ctx.runMutation(internal.repairs.markLooking, { repairId });
+    if (!started) return;
+    try {
+    const repair = await ctx.runQuery(internal.repairs.getInternal, { repairId });
+    if (!repair) return;
+    const understanding = await openAIJson<RepairUnderstanding>(
+      "repair_understanding",
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["category", "searchQuery"],
+        properties: { category: { type: "string" }, searchQuery: { type: "string" } },
+      },
+      `A person in ${repair.area} needs a small home repair. Their exact words: ${JSON.stringify(repair.description)}\nReturn a plain repair category and a concise web search query for local businesses whose own sites explicitly offer that repair. Do not diagnose the fault.`,
+    );
+
+    const firecrawlKey = process.env.FIRECRAWL_API_KEY;
+    if (!firecrawlKey) throw new Error("FIRECRAWL_API_KEY is not configured in Convex.");
+    const searchResponse = await fetch("https://api.firecrawl.dev/v2/search", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${firecrawlKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `${understanding.searchQuery} ${repair.area}`,
+        limit: 8,
+        sources: [{ type: "web" }],
+        scrapeOptions: { formats: ["markdown"], onlyMainContent: true },
+      }),
+    });
+    if (!searchResponse.ok) throw new Error(`Firecrawl failed (${searchResponse.status}): ${await searchResponse.text()}`);
+    const searchJson = (await searchResponse.json()) as Record<string, unknown>;
+    const data = (searchJson.data && typeof searchJson.data === "object" ? searchJson.data : searchJson) as Record<string, unknown>;
+    const rawResults = (Array.isArray(data.web) ? data.web : Array.isArray(data.data) ? data.data : []).slice(0, 8);
+    const sourceMaterial = rawResults.map((item, index) => {
+      const row = item as Record<string, unknown>;
+      return {
+        index,
+        title: safeText(row.title, 160),
+        url: safeText(row.url ?? row.sourceURL, 500),
+        description: safeText(row.description, 500),
+        markdown: safeText(row.markdown, 5000),
+      };
+    });
+
+    const selected = sourceMaterial.length
+      ? await openAIJson<{
+          candidates: Array<{ name: string; website: string; contactEmail: string | null; serviceEvidence: string; sourceUrl: string }>;
+        }>(
+          "repair_candidates",
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["candidates"],
+            properties: {
+              candidates: {
+                type: "array",
+                maxItems: 4,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["name", "website", "contactEmail", "serviceEvidence", "sourceUrl"],
+                  properties: {
+                    name: { type: "string" },
+                    website: { type: "string" },
+                    contactEmail: { type: ["string", "null"] },
+                    serviceEvidence: { type: "string" },
+                    sourceUrl: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          `Choose at most four businesses that clearly say they handle ${understanding.category} in or near ${repair.area}. Use only this Firecrawl source material:\n${JSON.stringify(sourceMaterial)}\nRules: serviceEvidence must be a short faithful paraphrase of words present in that source. Keep the exact source URL. Include an email only when literally present in the material. Never claim current availability, price, verification, rating, or job acceptance. Exclude directories, social profiles, and weak matches.`,
+        )
+      : { candidates: [] };
+
+    const candidates = selected.candidates
+      .filter((candidate) => /^https?:\/\//.test(candidate.website) && /^https?:\/\//.test(candidate.sourceUrl))
+      .map((candidate) => ({
+        name: safeText(candidate.name, 100),
+        website: safeText(candidate.website, 500),
+        contactEmail: cleanEmail(candidate.contactEmail),
+        serviceEvidence: safeText(candidate.serviceEvidence, 300),
+        sourceUrl: safeText(candidate.sourceUrl, 500),
+      }))
+      .filter((candidate) => candidate.name && candidate.serviceEvidence);
+
+    for (const candidate of candidates) {
+      if (candidate.contactEmail) continue;
+      const contact = await findPublicEmail(firecrawlKey, candidate.website);
+      if (contact) Object.assign(candidate, { contactEmail: contact.email, contactSourceUrl: contact.sourceUrl });
+    }
+    await ctx.runMutation(internal.repairs.saveDiscovery, {
+      repairId,
+      category: safeText(understanding.category, 100),
+      searchQuery: safeText(understanding.searchQuery, 240),
+      candidates,
+    });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Search failed unexpectedly.";
+      await ctx.runMutation(internal.repairs.saveDiscoveryError, { repairId, message });
+    }
+  },
+});
+
+async function findPublicEmail(apiKey: string, website: string): Promise<{ email: string; sourceUrl: string } | null> {
+  let host: string;
+  try { host = new URL(website).hostname.replace(/^www\./, ""); }
+  catch { return null; }
+  const response = await fetch("https://api.firecrawl.dev/v2/search", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query: `site:${host} contact email`,
+      limit: 3,
+      sources: [{ type: "web" }],
+      scrapeOptions: { formats: ["markdown"], onlyMainContent: true },
+    }),
+  });
+  if (!response.ok) return null;
+  const root = (await response.json()) as Record<string, unknown>;
+  const data = (root.data && typeof root.data === "object" ? root.data : root) as Record<string, unknown>;
+  const rows = (Array.isArray(data.web) ? data.web : Array.isArray(data.data) ? data.data : []) as Array<Record<string, unknown>>;
+  for (const row of rows) {
+    const sourceUrl = safeText(row.url ?? row.sourceURL, 500);
+    let sourceHost = "";
+    try { sourceHost = new URL(sourceUrl).hostname.replace(/^www\./, ""); } catch { continue; }
+    if (sourceHost !== host && !sourceHost.endsWith(`.${host}`)) continue;
+    const email = cleanEmail(`${safeText(row.description, 1000)}\n${safeText(row.markdown, 8000)}`);
+    if (email && !/^(noreply|no-reply|example)@/i.test(email)) return { email, sourceUrl };
+  }
+  return null;
+}
+
+export const askCandidates = action({
+  args: { repairId: v.id("repairs"), candidateIds: v.array(v.id("candidates")) },
+  handler: async (ctx, { repairId, candidateIds }) => {
+    const apiKey = process.env.AGENTMAIL_API_KEY;
+    const inboxId = process.env.AGENTMAIL_INBOX_ID;
+    if (!apiKey || !inboxId) throw new Error("AgentMail is not configured in Convex.");
+    const repair = await ctx.runQuery(internal.repairs.getInternal, { repairId });
+    const candidates = await ctx.runQuery(internal.repairs.listCandidatesInternal, { repairId });
+    if (!repair) throw new Error("Repair not found.");
+    const allowed = new Map(candidates.map((candidate) => [candidate._id, candidate]));
+    const results: Array<{ candidateId: Id<"candidates">; sent: boolean; reason?: string }> = [];
+    for (const candidateId of [...new Set(candidateIds)].slice(0, 4)) {
+      const candidate = allowed.get(candidateId);
+      if (!candidate?.contactEmail) {
+        results.push({ candidateId, sent: false, reason: "No public email found" });
+        continue;
+      }
+      const reservation = await ctx.runMutation(internal.repairs.reserveOutreach, { repairId, candidateId });
+      if (!reservation) continue;
+      if (!reservation.created) {
+        results.push({ candidateId, sent: false, reason: "Already asked" });
+        continue;
+      }
+      const subject = `Repair request in ${repair.area}`;
+      const text = `Hi ${candidate.name},\n\nSomeone in ${repair.area} needs help with this home repair:\n\n“${repair.description}”\n\nAre you available today or tomorrow? If so, please reply with when you could come and roughly what you’d charge.\n\nThanks,\nPatch`;
+      try {
+        const response = await fetch(`https://api.agentmail.to/v0/inboxes/${encodeURIComponent(inboxId)}/messages/send`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: [candidate.contactEmail],
+            subject,
+            text,
+            html: `<p>Hi ${escapeHtml(candidate.name)},</p><p>Someone in ${escapeHtml(repair.area)} needs help with this home repair:</p><blockquote>${escapeHtml(repair.description)}</blockquote><p>Are you available today or tomorrow? If so, please reply with when you could come and roughly what you’d charge.</p><p>Thanks,<br>Patch</p>`,
+          }),
+        });
+        if (!response.ok) throw new Error(`AgentMail failed (${response.status}): ${await response.text()}`);
+        const sent = (await response.json()) as { message_id?: string; thread_id?: string };
+        await ctx.runMutation(internal.repairs.finishOutreach, {
+          outreachId: reservation.outreachId,
+          success: true,
+          messageId: sent.message_id,
+          threadId: sent.thread_id,
+        });
+        results.push({ candidateId, sent: true });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not send";
+        await ctx.runMutation(internal.repairs.finishOutreach, {
+          outreachId: reservation.outreachId,
+          success: false,
+          error: message.slice(0, 500),
+        });
+        results.push({ candidateId, sent: false, reason: message });
+      }
+    }
+    if (!results.some((result) => result.sent)) throw new Error("No messages were sent. Choose someone with a public email.");
+    return results;
+  },
+});
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]!);
+}
+
+export const processInbound = internalAction({
+  args: {
+    externalMessageId: v.string(),
+    threadId: v.optional(v.string()),
+    fromEmail: v.string(),
+    rawText: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ accepted: boolean; duplicate: boolean }> => {
+    const reservation = await ctx.runMutation(internal.repairs.reserveReply, args);
+    if (!reservation || !reservation.created) return { accepted: Boolean(reservation), duplicate: Boolean(reservation) };
+    try {
+      const facts = await openAIJson<ReplyFacts>(
+        "repair_reply_facts",
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["canTakeJob", "arrivalText", "priceAmount", "currency", "note"],
+          properties: {
+            canTakeJob: { type: "string", enum: ["true", "false", "unclear"] },
+            arrivalText: { type: ["string", "null"] },
+            priceAmount: { type: ["number", "null"] },
+            currency: { type: ["string", "null"] },
+            note: { type: ["string", "null"] },
+          },
+        },
+        `Read this repair person's reply and extract only facts explicitly stated. Never infer a missing time, price, currency, or willingness. Preserve timing in their own concise wording. Nigerian shorthand such as "12k" means 12000 and, only when the context is clearly Nigerian, currency may be NGN. If willingness is hedged, use unclear. Reply:\n${JSON.stringify(args.rawText)}`,
+      );
+      await ctx.runMutation(internal.repairs.finishReply, {
+        replyId: reservation.replyId,
+        canTakeJob: facts.canTakeJob,
+        arrivalText: facts.arrivalText ?? undefined,
+        priceAmount: facts.priceAmount ?? undefined,
+        currency: facts.currency ?? undefined,
+        note: facts.note ?? undefined,
+        extractionStatus: "parsed",
+      });
+    } catch {
+      await ctx.runMutation(internal.repairs.finishReply, {
+        replyId: reservation.replyId,
+        canTakeJob: "unclear",
+        note: "We could not reliably read the details. Check the original reply.",
+        extractionStatus: "failed",
+      });
+    }
+    return { accepted: true, duplicate: false };
+  },
+});
