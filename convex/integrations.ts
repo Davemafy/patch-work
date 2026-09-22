@@ -52,7 +52,7 @@ export const discover = action({
         required: ["category", "searchQuery"],
         properties: { category: { type: "string" }, searchQuery: { type: "string" } },
       },
-      `A person in ${repair.area} needs a small home repair. Their exact words: ${JSON.stringify(repair.description)}\nReturn a plain repair category and a concise web search query for local businesses whose own sites explicitly offer that repair. Do not diagnose the fault.`,
+      `A person in ${repair.area} needs a small home repair. Their exact words: ${JSON.stringify(repair.description)}\nReturn a plain repair category and a concise web search query for local businesses whose own sites explicitly offer that repair. Use the public trade and service terms those businesses advertise, not just the customer's symptom wording; for example, a broken door knob may need a locksmith or door-lock repair search. Include the location once. Do not diagnose the fault.`,
     );
 
     const firecrawlKey = process.env.FIRECRAWL_API_KEY;
