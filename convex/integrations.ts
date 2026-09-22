@@ -95,7 +95,9 @@ export const discover = action({
       .filter((source) => !isAggregator(source.url))
       .filter((source) => {
         const pageText = `${source.title}\n${source.description}\n${source.markdown}`.toLowerCase();
-        return serviceTerms.length > 0 && serviceTerms.some((term) => pageText.includes(term));
+        return serviceTerms.length > 0
+          && serviceTerms.some((term) => pageText.includes(term))
+          && [...areaTerms].some((term) => pageText.includes(term));
       })
       .map((source) => {
         const evidenceLines = `${source.description}\n${source.markdown}`
@@ -148,6 +150,7 @@ function isAggregator(rawUrl: string): boolean {
     "jiji.ng",
     "linkedin.com",
     "starofservice.com.ng",
+    "viscorner.com",
     "yelp.com",
     "yellowpages.com",
   ].some((domain) => host === domain || host.endsWith(`.${domain}`));
