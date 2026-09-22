@@ -100,15 +100,18 @@ curl -X POST \
 
 The endpoint returns 404 when the secret is absent or wrong and is not exposed in the UI. After reset, open the app without a `?repair=` query. See [`docs/DEMO.md`](docs/DEMO.md) for the recording run.
 
-## Deployment
+## Production deployment
 
-1. Run `npx convex deploy` and note the production `.convex.cloud` and `.convex.site` URLs.
-2. Add the six production Convex environment variables above. `GROQ_API_KEY` is required; `OPENAI_API_KEY` is not used.
-3. Configure AgentMail's webhook against the `.convex.site` URL.
-4. Set `VITE_CONVEX_URL` in Vercel to the production `.convex.cloud` URL.
-5. Deploy the Vite app and run the complete real-email test from its public URL.
+Production deploys run through [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). GitHub Actions reads `CONVEX_DEPLOY_KEY` from the repository secret, verifies the project, builds the Vite frontend with the production Convex URL, embeds the static build in the Convex bundle, and runs `npx convex deploy`. The deploy key identifies the production deployment; `CONVEX_DEPLOYMENT` is not required.
 
-The verified production URL is recorded in `hackathon.md` after deployment.
+The same deployment serves both boundaries:
+
+- App: `https://aware-porpoise-430.convex.site`
+- AgentMail webhook: `https://aware-porpoise-430.convex.site/agentmail/webhook`
+
+The production Convex environment must contain `FIRECRAWL_API_KEY`, `AGENTMAIL_API_KEY`, `AGENTMAIL_INBOX_ID`, `AGENTMAIL_WEBHOOK_SECRET`, and `GROQ_API_KEY`. `OPENAI_API_KEY` is not used. Pushes to `main` and manual workflow dispatches run the complete deployment gate.
+
+After the workflow succeeds, run the real email journey from the public app; a green workflow alone is not acceptance evidence.
 
 ## Tested guarantees
 

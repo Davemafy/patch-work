@@ -3,6 +3,7 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { readInboundEvent } from "./lib";
 import { Webhook } from "svix";
+import { STATIC_FILES } from "./generatedStatic";
 
 const http = httpRouter();
 
@@ -46,6 +47,34 @@ http.route({
     const archived = await ctx.runMutation(internal.repairs.resetDemo, {});
     return Response.json({ archived });
   }),
+});
+
+function staticResponse(pathname: string): Response {
+  const file = STATIC_FILES[pathname];
+  if (!file) return new Response("Not found", { status: 404 });
+  const binary = atob(file.body);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Response(bytes, {
+    headers: {
+      "Content-Type": file.contentType,
+      "Cache-Control": pathname === "/index.html" ? "no-cache" : "public, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+    },
+  });
+}
+
+http.route({
+  path: "/",
+  method: "GET",
+  handler: httpAction(async () => staticResponse("/index.html")),
+});
+
+http.route({
+  pathPrefix: "/assets/",
+  method: "GET",
+  handler: httpAction(async (_ctx, request) => staticResponse(new URL(request.url).pathname)),
 });
 
 export default http;

@@ -2,6 +2,8 @@
 
 Target: 90–105 seconds. Show the product, not an architecture tour.
 
+Production app: `https://aware-porpoise-430.convex.site`
+
 ## Before recording
 
 1. Confirm the production app, Convex deployment, AgentMail webhook, Firecrawl key, and Groq key are live.
