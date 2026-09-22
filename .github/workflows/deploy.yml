@@ -31,13 +31,10 @@ jobs:
       - name: Identify the patch-work production deployment (read-only)
         run: |
           response="$(curl --fail --silent --show-error \
-            --request POST \
             --header "Authorization: Bearer $CONVEX_DEPLOY_KEY" \
             --header "Convex-Client: npm-cli-1.28.0" \
-            --header "Content-Type: application/json" \
-            --data '{"deploymentName":"successful-whale-951"}' \
-            https://api.convex.dev/api/deployment/authorize_prod)"
-          production_name="$(jq --raw-output '.deploymentName' <<<"$response")"
+            https://api.convex.dev/api/teams/david-imafidon/projects/patch-work/deployments)"
+          production_name="$(jq --raw-output '.[] | select(.deployment_type == "prod") | .name' <<<"$response")"
           if [[ -z "$production_name" || "$production_name" == "null" ]]; then
             echo "::error::Convex did not return the patch-work production deployment name."
             exit 1
